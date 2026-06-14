@@ -1,22 +1,33 @@
+import os
+import requests
 from flask import Flask, request, jsonify
 import tensorflow as tf
 import numpy as np
 from PIL import Image
-import requests
-import os
 
 app = Flask(__name__)
 
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1uiYBXrqtbm1X5F_bJEpOMrRs44_h0yYd"
+FILE_ID = "1uiYBXrqtbm1X5F_bJEpOMrRs44_h0yYd"
 MODEL_PATH = "/tmp/malaria_model.keras"
 
 def download_model():
     if not os.path.exists(MODEL_PATH):
-        r = requests.get(MODEL_URL, stream=True)
+        print("Downloading model from Google Drive...")
+
+        url = f"https://drive.usercontent.google.com/download?id={FILE_ID}&export=download&confirm=t"
+
+        session = requests.Session()
+        response = session.get(url, stream=True)
+
+        if response.status_code != 200:
+            raise Exception(f"Download failed: {response.status_code}")
+
         with open(MODEL_PATH, "wb") as f:
-            for chunk in r.iter_content(1024):
+            for chunk in response.iter_content(1024):
                 if chunk:
                     f.write(chunk)
+
+        print("Model downloaded successfully!")
 
 download_model()
 
@@ -48,7 +59,3 @@ def analyze():
         "result": result,
         "confidence": round(confidence, 2)
     })
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
