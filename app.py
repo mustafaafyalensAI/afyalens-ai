@@ -1,61 +1,51 @@
-import os
-import requests
 from flask import Flask, request, jsonify
-import tensorflow as tf
 import numpy as np
 from PIL import Image
+import tflite_runtime.interpreter as tflite
 
 app = Flask(__name__)
 
-FILE_ID = "1uiYBXrqtbm1X5F_bJEpOMrRs44_h0yYd"
-MODEL_PATH = "/tmp/malaria_model.keras"
+# Load TFLite model
+interpreter = tflite.Interpreter(model_path="malaria_model.tflite")
+interpreter.allocate_tensors()
 
-def download_model():
-    if not os.path.exists(MODEL_PATH):
-        print("Downloading model from Google Drive...")
-
-        url = f"https://drive.usercontent.google.com/download?id={FILE_ID}&export=download&confirm=t"
-
-        session = requests.Session()
-        response = session.get(url, stream=True)
-
-        if response.status_code != 200:
-            raise Exception(f"Download failed: {response.status_code}")
-
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in response.iter_content(1024):
-                if chunk:
-                    f.write(chunk)
-
-        print("Model downloaded successfully!")
-
-download_model()
-
-model = tf.keras.models.load_model(MODEL_PATH)
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 @app.route("/")
 def home():
-    return "AfyaLens AI Running"
+    return "AfyaLens AI (TFLite) Running"
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    file = request.files["image"]
+    try:
+        file = request.files["image"]
 
-    img = Image.open(file).convert("RGB")
-    img = img.resize((128,128))
-    img = np.array(img)/255.0
-    img = np.expand_dims(img, axis=0)
+        img = Image.open(file).convert("RGB")
+        img = img.resize((128, 128))
+        img = np.array(img, dtype=np.float32) / 255.0
+        img = np.expand_dims(img, axis=0)
 
-    prediction = model.predict(img)[0][0]
+        interpreter.set_tensor(input_details[0]['index'], img)
+        interpreter.invoke()
 
-    if prediction > 0.5:
-        result = "Uninfected"
-        confidence = float(prediction * 100)
-    else:
-        result = "Parasitized"
-        confidence = float((1 - prediction) * 100)
+        prediction = interpreter.get_tensor(output_details[0]['index'])[0][0]
 
-    return jsonify({
-        "result": result,
-        "confidence": round(confidence, 2)
-    })
+        if prediction > 0.5:
+            result = "Uninfected"
+            confidence = float(prediction * 100)
+        else:
+            result = "Parasitized"
+            confidence = float((1 - prediction) * 100)
+
+        return jsonify({
+            "result": result,
+            "confidence": round(confidence, 2)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
